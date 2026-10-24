@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600">
+  <rect width="800" height="600" fill="#f2f4e8"/>
+  <ellipse cx="400" cy="455" rx="245" ry="72" fill="#dce6c7"/>
+  <path d="M158 366c8 115 92 185 242 185s234-70 242-185" fill="#fffdf5" stroke="#075b35" stroke-width="12"/>
+  <ellipse cx="400" cy="366" rx="242" ry="84" fill="#f8f9ee" stroke="#075b35" stroke-width="12"/>
+  <circle cx="294" cy="340" r="53" fill="#f04455"/>
+  <circle cx="391" cy="323" r="56" fill="#ffad36"/>
+  <circle cx="491" cy="348" r="53" fill="#b8e64a"/>
+  <circle cx="348" cy="397" r="48" fill="#ffad36"/>
+  <circle cx="449" cy="402" r="48" fill="#f04455"/>
+  <path d="M391 267c0-32 20-55 48-61" fill="none" stroke="#075b35" stroke-linecap="round" stroke-width="12"/>
+  <path d="M433 212c30-31 64-23 74-5-24 19-52 22-74 5Z" fill="#36a832"/>
+  <text x="400" y="90" fill="#075b35" font-family="sans-serif" font-size="29" font-weight="700" text-anchor="middle">FRESH MIXED FRUIT</text>
+</svg>
