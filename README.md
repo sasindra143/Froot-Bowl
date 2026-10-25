@@ -87,7 +87,7 @@ The rider portal has been removed; visiting `/rider` redirects to the customer s
 
 ### Production frontend build
 
-The Vite build uses `/` as its public base path. The root `netlify.toml` sets the base directory to `frontend`, runs `npm run build`, publishes `dist`, and proxies `/api/*` requests to the Render backend. Build it locally with:
+The Vite build uses `/` as its public base path. The root `netlify.toml` sets the base directory to `frontend`, runs `npm run build`, and publishes `dist`. The frontend's `public/_redirects` file proxies `/api/*` requests to the Render backend and serves the React app for direct routes such as `/admin`. Build it locally with:
 
 ```powershell
 Set-Location frontend
