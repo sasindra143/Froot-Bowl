@@ -114,6 +114,9 @@ function readStore() {
       deliveryCoverageAudit: Array.isArray(data.deliveryCoverageAudit)
         ? data.deliveryCoverageAudit
         : [],
+      orderIdSequence: Number.isSafeInteger(data.orderIdSequence)
+        ? data.orderIdSequence
+        : 9999,
       deliveryCoverage: data.deliveryCoverage || {
         center: markapurCenter,
         radiusKm: deliveryRadiusKm,
@@ -128,6 +131,7 @@ function readStore() {
         riders: [],
         orders: [],
         deliveryCoverageAudit: [],
+        orderIdSequence: 9999,
         deliveryCoverage: {
           center: markapurCenter,
           radiusKm: deliveryRadiusKm,
@@ -505,12 +509,15 @@ function publicOrder(order, includePhotoOverride = false, riderPhone = "") {
   };
 }
 
-function createOrderId(existingOrders) {
-  let id;
-  do {
-    id = `FB-${randomUUID().toUpperCase()}`;
-  } while (existingOrders.some((order) => order.id === id));
-  return id;
+function createOrderId(store) {
+  const highestExistingId = store.orders.reduce((highest, order) => {
+    if (typeof order.id !== "string" || !/^\d{5}$/.test(order.id)) return highest;
+    return Math.max(highest, Number(order.id));
+  }, 9999);
+  const nextId = Math.max(store.orderIdSequence || 9999, highestExistingId) + 1;
+  if (nextId > 99999) return null;
+  store.orderIdSequence = nextId;
+  return String(nextId).padStart(5, "0");
 }
 
 app.get("/api/health", (_request, response) => {
@@ -1175,8 +1182,13 @@ app.post("/api/orders", requireAuth, (request, response) => {
 
   const subtotal = normalizedItems.reduce((sum, item) => sum + item.lineTotal, 0);
   const now = new Date().toISOString();
+  const orderId = createOrderId(store);
+  if (!orderId) {
+    response.status(503).json({ error: "The five-digit order number range is full. Contact support before accepting more orders." });
+    return;
+  }
   const order = {
-    id: createOrderId(store.orders),
+    id: orderId,
     customer: {
       id: customer.id,
       name: customer.name,
@@ -1827,10 +1839,6 @@ app.delete("/api/admin/orders/:id", requireAdmin, (request, response) => {
   );
   if (orderIndex < 0) {
     response.status(404).json({ error: "Order not found." });
-    return;
-  }
-  if (store.orders[orderIndex].status !== "delivered") {
-    response.status(409).json({ error: "Only delivered orders can be deleted." });
     return;
   }
   store.orders.splice(orderIndex, 1);

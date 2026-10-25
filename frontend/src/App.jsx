@@ -93,7 +93,7 @@ function phoneLink(phone) {
   return `tel:${phone.replace(/[^\d+]/g, "")}`;
 }
 
-function riderWhatsAppUrl(phone, message) {
+function whatsAppContactUrl(phone, message) {
   const digits = phone.replace(/\D/g, "");
   const number = digits.length === 10
     ? `91${digits}`
@@ -841,17 +841,63 @@ const orderStatusLabels = {
   cancelled: "Cancelled",
 };
 
-function periodStart(period, now = new Date()) {
-  const start = new Date(now);
-  start.setHours(0, 0, 0, 0);
-  if (period === "week") {
-    start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
-  } else if (period === "month") {
-    start.setDate(1);
-  } else if (period === "year") {
-    start.setMonth(0, 1);
+function periodSelection(period, date = new Date()) {
+  if (period === "day") {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
   }
-  return start;
+  if (period === "month") {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+  }
+  return String(date.getFullYear());
+}
+
+function previousMonthSelection(date = new Date()) {
+  const previousMonth = new Date(date.getFullYear(), date.getMonth() - 1, 1);
+  return periodSelection("month", previousMonth);
+}
+
+function periodRange(period, value) {
+  let start;
+  if (period === "day" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [year, month, day] = value.split("-").map(Number);
+    start = new Date(year, month - 1, day);
+    if (start.getFullYear() !== year || start.getMonth() !== month - 1 || start.getDate() !== day) return null;
+  } else if (period === "month" && /^\d{4}-\d{2}$/.test(value)) {
+    const [year, month] = value.split("-").map(Number);
+    if (month < 1 || month > 12) return null;
+    start = new Date(year, month - 1, 1);
+  } else if (period === "year" && /^\d{4}$/.test(value)) {
+    start = new Date(Number(value), 0, 1);
+  } else {
+    return null;
+  }
+  const end = new Date(start);
+  if (period === "day") end.setDate(end.getDate() + 1);
+  if (period === "month") end.setMonth(end.getMonth() + 1);
+  if (period === "year") end.setFullYear(end.getFullYear() + 1);
+  return { start, end };
+}
+
+function customDateRange(startValue, endValue) {
+  const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+  if (!datePattern.test(startValue) || !datePattern.test(endValue)) return null;
+  const [startYear, startMonth, startDay] = startValue.split("-").map(Number);
+  const start = new Date(startYear, startMonth - 1, startDay);
+  const [endYear, endMonth, endDay] = endValue.split("-").map(Number);
+  const end = new Date(endYear, endMonth - 1, endDay);
+  if (
+    start.getFullYear() !== startYear ||
+    start.getMonth() !== startMonth - 1 ||
+    start.getDate() !== startDay ||
+    end.getFullYear() !== endYear ||
+    end.getMonth() !== endMonth - 1 ||
+    end.getDate() !== endDay ||
+    start > end
+  ) {
+    return null;
+  }
+  end.setDate(end.getDate() + 1);
+  return { start, end };
 }
 
 async function apiRequest(url, options = {}) {
@@ -1513,19 +1559,19 @@ function CheckoutDialog({ cart, user, onClose, onPlaceOrder }) {
 
 function OrdersDialog({ onClose, onSignOut, admin = false, user, onUserUpdated }) {
   const [orders, setOrders] = useState([]);
-  const [coverage, setCoverage] = useState({
-    center: { latitude: 15.7351, longitude: 79.2695 },
-    radiusKm: 6,
-    enabled: true,
-    referencePoint: "Markapuram, Andhra Pradesh",
-  });
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [photoError, setPhotoError] = useState("");
   const [photoBusy, setPhotoBusy] = useState(false);
   const [busyOrder, setBusyOrder] = useState("");
   const [confirmation, setConfirmation] = useState(null);
-  const [coverageBusy, setCoverageBusy] = useState(false);
+  const [reportPeriod, setReportPeriod] = useState("day");
+  const [reportPeriodValue, setReportPeriodValue] = useState(() => periodSelection("day"));
+  const [rangeStart, setRangeStart] = useState(() => periodSelection("day"));
+  const [rangeEnd, setRangeEnd] = useState(() => periodSelection("day"));
+  const [adminSection, setAdminSection] = useState("overview");
+  const [orderSearch, setOrderSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [editingAddressOrderId, setEditingAddressOrderId] = useState("");
   const [addressSaving, setAddressSaving] = useState(false);
 
@@ -1539,62 +1585,11 @@ function OrdersDialog({ onClose, onSignOut, admin = false, user, onUserUpdated }
     }
   }
 
-  async function saveCoverage(event) {
-    event.preventDefault();
-    setCoverageBusy(true);
-    setError("");
-    setNotice("");
-    const form = new FormData(event.currentTarget);
-    try {
-      const result = await apiRequest("/api/admin/coverage", {
-        method: "PUT",
-        body: JSON.stringify({
-          center: coverage.center,
-          radiusKm: Number(form.get("radiusKm")),
-          referencePoint: form.get("referencePoint"),
-          enabled: form.get("enabled") === "on",
-        }),
-      });
-      setCoverage(result.coverage);
-      setNotice("Delivery coverage settings saved.");
-    } catch (requestError) {
-      setError(requestError.message);
-    } finally {
-      setCoverageBusy(false);
-    }
-  }
-
-  function useAdminCurrentLocation() {
-    if (!navigator.geolocation) {
-      setError("Location is not available in this browser.");
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      ({ coords }) => setCoverage((current) => ({
-        ...current,
-        center: { latitude: coords.latitude, longitude: coords.longitude },
-      })),
-      (geoError) => setError(
-        geoError.code === geoError.PERMISSION_DENIED
-          ? "Allow location access or select the service center on the map."
-          : "We couldn’t get the service-center location. Select it on the map instead.",
-      ),
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
-    );
-  }
-
   useEffect(() => {
     refreshOrders();
     const timer = window.setInterval(refreshOrders, 5000);
     return () => window.clearInterval(timer);
   }, []);
-
-  useEffect(() => {
-    if (!admin) return;
-    apiRequest("/api/admin/coverage")
-      .then((result) => setCoverage(result.coverage))
-      .catch((coverageError) => setError(coverageError.message));
-  }, [admin]);
 
   async function updateStatus(order, status) {
     setBusyOrder(order.id);
@@ -1744,38 +1739,143 @@ function OrdersDialog({ onClose, onSignOut, admin = false, user, onUserUpdated }
     }
   }
 
-  const dashboardPeriods = admin
-    ? ["day", "week", "month", "year"].map((period) => {
-        const start = periodStart(period);
-        const periodOrders = orders.filter((order) => new Date(order.createdAt) >= start);
-        const deliveredOrders = orders.filter((order) => {
-          const deliveredAt = order.statusHistory.find((entry) => entry.status === "delivered")?.at;
-          return deliveredAt && new Date(deliveredAt) >= start;
-        });
-        return {
-          period,
-          orderCount: periodOrders.length,
-          cancelledCount: periodOrders.filter((order) => order.status === "cancelled").length,
-          deliveredCount: deliveredOrders.length,
-          revenue: deliveredOrders.reduce((total, order) => total + order.total, 0),
-        };
+  const selectedPeriodRange = reportPeriod === "range"
+    ? customDateRange(rangeStart, rangeEnd)
+    : reportPeriod === "last-month"
+      ? periodRange("month", previousMonthSelection())
+      : periodRange(reportPeriod, reportPeriodValue);
+  const periodOrders = admin && selectedPeriodRange
+    ? orders.filter((order) => {
+        const createdAt = new Date(order.createdAt);
+        return createdAt >= selectedPeriodRange.start && createdAt < selectedPeriodRange.end;
       })
-    : [];
+    : admin ? [] : orders;
+  const deliveredOrders = periodOrders.filter((order) => order.status === "delivered");
+  const dashboardSummary = {
+    orderCount: periodOrders.length,
+    cancelledCount: periodOrders.filter((order) => order.status === "cancelled").length,
+    deliveredCount: deliveredOrders.length,
+    revenue: deliveredOrders.reduce((total, order) => total + order.total, 0),
+  };
+  const statusSummary = Object.entries(orderStatusLabels).map(([status, label]) => ({
+    status,
+    label,
+    count: periodOrders.filter((order) => order.status === status).length,
+  }));
+  const statusColors = {
+    placed: "#e2a441",
+    awaiting_confirmation: "#c98635",
+    confirmed: "#63b88a",
+    preparing: "#39a875",
+    out_for_delivery: "#2186b7",
+    delivered: "#087846",
+    cancelled: "#d36b63",
+  };
+  let statusChartOffset = 0;
+  const statusChartSegments = statusSummary.map(({ status, count }) => {
+    const start = statusChartOffset;
+    statusChartOffset += dashboardSummary.orderCount ? (count / dashboardSummary.orderCount) * 100 : 0;
+    return `${statusColors[status]} ${start}% ${statusChartOffset}%`;
+  });
+  const statusChartBackground = dashboardSummary.orderCount
+    ? `conic-gradient(${statusChartSegments.join(", ")})`
+    : "conic-gradient(#e8eee6 0% 100%)";
+  const topProducts = Object.values(periodOrders.reduce((products, order) => {
+    order.items.forEach((item) => {
+      const key = item.productId || item.name;
+      products[key] ||= { id: key, name: item.name, quantity: 0, revenue: 0 };
+      products[key].quantity += item.quantity;
+      products[key].revenue += item.lineTotal;
+    });
+    return products;
+  }, {})).sort((first, second) => second.quantity - first.quantity).slice(0, 5);
+  const topProductQuantity = Math.max(1, ...topProducts.map((product) => product.quantity));
+  const customersById = periodOrders.reduce((customers, order) => {
+    const id = order.customer.id || order.customer.email || order.customer.phone;
+    customers[id] ||= {
+      id,
+      name: order.customer.name,
+      orderCount: 0,
+      total: 0,
+      lastOrderAt: order.createdAt,
+    };
+    customers[id].orderCount += 1;
+    customers[id].total += order.total;
+    if (new Date(order.createdAt) > new Date(customers[id].lastOrderAt)) {
+      customers[id].lastOrderAt = order.createdAt;
+    }
+    return customers;
+  }, {});
+  const periodCustomers = Object.values(customersById).sort((first, second) => second.total - first.total).slice(0, 5);
+  const visibleOrders = periodOrders.filter((order) => {
+    const query = orderSearch.trim().toLocaleLowerCase();
+    const matchesSearch = !query || [
+      order.id,
+      order.customer.name,
+      order.customer.phone,
+      order.customer.email,
+    ].some((value) => String(value || "").toLocaleLowerCase().includes(query));
+    return matchesSearch && (statusFilter === "all" || order.status === statusFilter);
+  });
+
+  function navigateAdminSection(section, elementId) {
+    setAdminSection(section);
+    document.getElementById(elementId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   return (
-    <div className="modal-backdrop orders-backdrop" onMouseDown={(event) => {
+    <div className={admin ? "admin-dashboard-backdrop" : "modal-backdrop orders-backdrop"} onMouseDown={(event) => {
       if (event.target === event.currentTarget) onClose();
     }}>
-      <section aria-labelledby="orders-title" aria-modal="true" className="site-modal orders-modal" role="dialog">
-        <div className="modal-heading">
+      <section aria-labelledby="orders-title" aria-modal="true" className={admin ? "admin-dashboard-layout" : "site-modal orders-modal"} role="dialog">
+        {admin && (
+          <aside aria-label="Admin navigation" className="admin-sidebar">
+            <a aria-label="Froot Bowl dashboard home" className="admin-sidebar-brand" href={BASE_URL}>
+              <img alt="" src={`${BASE_URL}assets/froot-bowl-logo.jpeg`} />
+              <span><strong>Froot Bowl</strong><small>ADMIN CONSOLE</small></span>
+            </a>
+            <span className="admin-sidebar-label">WORKSPACE</span>
+            <nav className="admin-sidebar-nav">
+              {[
+                { id: "overview", label: "Dashboard", target: "admin-overview", icon: <Leaf size={17} /> },
+                { id: "orders", label: "Orders", target: "admin-orders", icon: <PackageCheck size={17} /> },
+                { id: "products", label: "Products", target: "admin-products", icon: <ShoppingBag size={17} /> },
+                { id: "customers", label: "Customers", target: "admin-customers", icon: <UserRound size={17} /> },
+                { id: "reports", label: "Reports", target: "admin-reports", icon: <ArrowUpRight size={17} /> },
+              ].map((item) => (
+                <button
+                  aria-current={adminSection === item.id ? "page" : undefined}
+                  className={adminSection === item.id ? "admin-nav-link active" : "admin-nav-link"}
+                  key={item.id}
+                  onClick={() => navigateAdminSection(item.id, item.target)}
+                  type="button"
+                >
+                  {item.icon}<span>{item.label}</span>
+                  {item.id === "orders" && periodOrders.length > 0 && <b>{periodOrders.length}</b>}
+                </button>
+              ))}
+            </nav>
+            <div className="admin-sidebar-bottom">
+              <a className="admin-nav-link" href={BASE_URL}><ArrowRight size={17} /><span>View storefront</span></a>
+              <button className="admin-nav-link admin-signout" onClick={onSignOut} type="button"><LogOut size={17} /><span>Sign out</span></button>
+              <div className="admin-sidebar-user">
+                <span className="admin-sidebar-avatar">{user?.name?.slice(0, 1).toUpperCase() || "A"}</span>
+                <span><strong>{user?.name || "Administrator"}</strong><small>Store admin</small></span>
+              </div>
+            </div>
+          </aside>
+        )}
+        <main className={admin ? "admin-dashboard-main" : undefined}>
+        <div className={admin ? "admin-dashboard-toolbar" : "modal-heading"} id={admin ? "admin-overview" : undefined}>
           <div>
-            <span className="eyebrow">{admin ? "ORDER MANAGEMENT" : "YOUR FRESH ORDERS"}</span>
-            <h2 id="orders-title">{admin ? "Admin dashboard" : "My orders"}</h2>
+            <span className="eyebrow">{admin ? "STORE OVERVIEW" : "YOUR FRESH ORDERS"}</span>
+            <h2 id="orders-title">{admin ? "Dashboard" : "My orders"}</h2>
+            {admin && <p className="admin-dashboard-subtitle">Welcome back, {user?.name?.split(" ")[0] || "Admin"} — here’s what’s happening at your store.</p>}
           </div>
           <div className="orders-actions">
             <button aria-label="Refresh orders" className="icon-button" onClick={refreshOrders} type="button"><RefreshCw size={17} /></button>
-            {onSignOut && <button aria-label="Sign out" className="icon-button" onClick={onSignOut} type="button"><LogOut size={17} /></button>}
-            <button aria-label="Close orders" className="icon-button" onClick={onClose} type="button"><X /></button>
+            {!admin && onSignOut && <button aria-label="Sign out" className="icon-button" onClick={onSignOut} type="button"><LogOut size={17} /></button>}
+            {!admin && <button aria-label="Close orders" className="icon-button" onClick={onClose} type="button"><X /></button>}
           </div>
         </div>
         {!admin && (
@@ -1799,72 +1899,139 @@ function OrdersDialog({ onClose, onSignOut, admin = false, user, onUserUpdated }
         {admin && (
           <>
             <div className="dashboard-stats">
-              <div><span>ACTIVE ORDERS</span><strong>{orders.filter((order) => !["delivered", "cancelled"].includes(order.status)).length}</strong></div>
-              <div><span>OUT FOR DELIVERY</span><strong>{orders.filter((order) => order.status === "out_for_delivery").length}</strong></div>
-              <div><span>DELIVERED</span><strong>{orders.filter((order) => order.status === "delivered").length}</strong></div>
+              <article className="admin-stat-card"><span>ORDERS IN PERIOD</span><strong>{dashboardSummary.orderCount}</strong><small>Filtered by selected dates</small></article>
+              <article className="admin-stat-card"><span>DELIVERED REVENUE</span><strong>₹{dashboardSummary.revenue.toLocaleString("en-IN")}</strong><small>{dashboardSummary.deliveredCount} completed orders</small></article>
+              <article className="admin-stat-card"><span>ACTIVE ORDERS</span><strong>{periodOrders.filter((order) => !["delivered", "cancelled"].includes(order.status)).length}</strong><small>Awaiting or in progress</small></article>
+              <article className="admin-stat-card"><span>AVERAGE ORDER</span><strong>₹{dashboardSummary.deliveredCount ? Math.round(dashboardSummary.revenue / dashboardSummary.deliveredCount).toLocaleString("en-IN") : "0"}</strong><small>Delivered orders only</small></article>
             </div>
-            <div aria-label="Sales reports" className="dashboard-periods">
-              {dashboardPeriods.map((summary) => (
-                <article className="period-report" key={summary.period}>
-                  <span>{summary.period.toUpperCase()}</span>
-                  <strong>₹{summary.revenue.toLocaleString("en-IN")}</strong>
-                  <small>{summary.orderCount} orders · {summary.deliveredCount} delivered · {summary.cancelledCount} cancelled</small>
+            <section aria-label="Sales reports" className="dashboard-periods">
+              <div className={`period-report-controls ${reportPeriod === "range" ? "period-report-range" : ""}`} id="admin-reports">
+                <label>Summary period
+                  <select
+                    onChange={(event) => {
+                      const nextPeriod = event.target.value;
+                      setReportPeriod(nextPeriod);
+                      setReportPeriodValue(periodSelection(nextPeriod));
+                    }}
+                    value={reportPeriod}
+                  >
+                    <option value="day">Day</option>
+                    <option value="month">Month</option>
+                    <option value="year">Year</option>
+                    <option value="last-month">Last month</option>
+                    <option value="range">Custom date range</option>
+                  </select>
+                </label>
+                {reportPeriod === "day" && (
+                  <label>Select day
+                    <input max={periodSelection("day")} onChange={(event) => setReportPeriodValue(event.target.value)} type="date" value={reportPeriodValue} />
+                  </label>
+                )}
+                {reportPeriod === "month" && (
+                  <label>Select month
+                    <input max={periodSelection("month")} onChange={(event) => setReportPeriodValue(event.target.value)} type="month" value={reportPeriodValue} />
+                  </label>
+                )}
+                {reportPeriod === "year" && (
+                  <label>Select year
+                    <input max={String(new Date().getFullYear())} min="2000" onChange={(event) => setReportPeriodValue(event.target.value)} type="number" value={reportPeriodValue} />
+                  </label>
+                )}
+                {reportPeriod === "range" && (
+                  <>
+                    <label>From
+                      <input max={rangeEnd || undefined} onChange={(event) => setRangeStart(event.target.value)} type="date" value={rangeStart} />
+                    </label>
+                    <label>Through
+                      <input min={rangeStart || undefined} max={periodSelection("day")} onChange={(event) => setRangeEnd(event.target.value)} type="date" value={rangeEnd} />
+                    </label>
+                  </>
+                )}
+                <article className="period-report">
+                  <span>{reportPeriod === "last-month" ? "LAST MONTH SUMMARY" : reportPeriod === "range" ? "DATE RANGE SUMMARY" : `${reportPeriod.toUpperCase()} SUMMARY`}</span>
+                  <strong>₹{dashboardSummary.revenue.toLocaleString("en-IN")}</strong>
+                  <small>Delivered revenue · {dashboardSummary.orderCount} orders · {dashboardSummary.deliveredCount} delivered · {dashboardSummary.cancelledCount} cancelled</small>
                 </article>
-              ))}
-            </div>
-            <section className="coverage-management">
-              <div>
-                <span className="eyebrow">SERVICE AREA</span>
-                <h3>Markapuram delivery coverage</h3>
-                <p>Select the verified center on the map. The server uses this center and radius for checkout validation.</p>
               </div>
-              <DeliveryLocationPicker
-                center={coverage.center}
-                description={`Select the reference point for the ${coverage.radiusKm} km service boundary. This circle previews the radius around the selected center.`}
-                gettingLocation={false}
-                heading="Verify the Markapur service center"
-                onSelect={(center) => setCoverage((current) => ({ ...current, center }))}
-                onUseCurrentLocation={useAdminCurrentLocation}
-                radiusKm={coverage.radiusKm}
-                selectedLocation={coverage.center}
-              />
-              <form className="coverage-settings-form" onSubmit={saveCoverage}>
-                <label>Verified reference address
-                  <input defaultValue={coverage.referencePoint || ""} key={coverage.referencePoint} maxLength="160" name="referencePoint" required />
-                </label>
-                <div className="form-two-columns">
-                  <label>Center latitude
-                    <input readOnly value={coverage.center.latitude.toFixed(6)} />
-                  </label>
-                  <label>Center longitude
-                    <input readOnly value={coverage.center.longitude.toFixed(6)} />
-                  </label>
-                </div>
-                <label>Service radius (km)
-                  <input defaultValue={coverage.radiusKm} key={`radius-${coverage.radiusKm}`} max="100" min="0.1" name="radiusKm" required step="0.1" type="number" />
-                </label>
-                <label className="terms-choice">
-                  <input defaultChecked={coverage.enabled} key={`enabled-${coverage.enabled}`} name="enabled" type="checkbox" />
-                  <span>Enable delivery coverage</span>
-                </label>
-                <button className="button button-green" disabled={coverageBusy} type="submit">
-                  {coverageBusy ? "Saving…" : "Save service area"}
-                </button>
-              </form>
             </section>
+            <div className="admin-analytics-grid">
+              <section aria-labelledby="admin-status-title" className="admin-panel admin-status-panel">
+                <div className="admin-panel-heading">
+                  <div><span className="eyebrow">ORDER REPORT</span><h3 id="admin-status-title">Status overview</h3></div>
+                  <span className="admin-panel-period">{reportPeriod === "range" ? `${rangeStart} – ${rangeEnd}` : reportPeriod === "last-month" ? "Last month" : reportPeriodValue}</span>
+                </div>
+                <div className="admin-status-content">
+                  <div aria-label="Order status breakdown chart" className="admin-status-donut" style={{ background: statusChartBackground }}>
+                    <div><strong>{dashboardSummary.orderCount}</strong><span>orders</span></div>
+                  </div>
+                  <div className="admin-status-legend">
+                    {statusSummary.filter((entry) => entry.count > 0 || dashboardSummary.orderCount === 0).map((entry) => (
+                      <div className="admin-status-legend-row" key={entry.status}>
+                        <i style={{ background: statusColors[entry.status] }} />
+                        <span>{entry.label}</span><strong>{entry.count}</strong>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </section>
+              <section aria-labelledby="admin-products-title" className="admin-panel" id="admin-products">
+                <div className="admin-panel-heading">
+                  <div><span className="eyebrow">BEST SELLERS</span><h3 id="admin-products-title">Top ordered products</h3></div>
+                  <span className="admin-panel-period">Selected period</span>
+                </div>
+                {topProducts.length ? (
+                  <div className="admin-product-list">
+                    {topProducts.map((product) => (
+                      <div className="admin-product-row" key={product.id}>
+                        <span className="admin-product-thumb"><Leaf size={17} /></span>
+                        <span className="admin-product-detail"><strong>{product.name}</strong><small>{product.quantity} boxes ordered</small><i><b style={{ width: `${(product.quantity / topProductQuantity) * 100}%` }} /></i></span>
+                        <strong className="admin-product-revenue">₹{product.revenue.toLocaleString("en-IN")}</strong>
+                      </div>
+                    ))}
+                  </div>
+                ) : <p className="admin-panel-empty">No product sales in this period.</p>}
+              </section>
+              <section aria-labelledby="admin-customers-title" className="admin-panel admin-customers-panel" id="admin-customers">
+                <div className="admin-panel-heading">
+                  <div><span className="eyebrow">CUSTOMER ACTIVITY</span><h3 id="admin-customers-title">Top customers</h3></div>
+                  <span className="admin-panel-period">Selected period</span>
+                </div>
+                {periodCustomers.length ? (
+                  <div className="admin-customer-list">
+                    {periodCustomers.map((customer) => (
+                      <div className="admin-customer-row" key={customer.id}>
+                        <span className="admin-customer-avatar">{customer.name.slice(0, 1).toUpperCase()}</span>
+                        <span><strong>{customer.name}</strong><small>{customer.orderCount} order{customer.orderCount === 1 ? "" : "s"}</small></span>
+                        <strong>₹{customer.total.toLocaleString("en-IN")}</strong>
+                      </div>
+                    ))}
+                  </div>
+                ) : <p className="admin-panel-empty">No customer orders in this period.</p>}
+              </section>
+            </div>
           </>
         )}
-        <div aria-live="polite" className="orders-list">
+        <section aria-label={admin ? "Orders" : "Your orders"} className={admin ? "admin-orders-section" : undefined} id={admin ? "admin-orders" : undefined}>
+        {admin && (
+          <div className="admin-orders-toolbar">
+            <div><span className="eyebrow">ORDER MANAGEMENT</span><h3>Recent orders</h3><p>{visibleOrders.length} of {periodOrders.length} orders in the selected period</p></div>
+            <div className="admin-order-filters">
+              <label className="admin-order-search"><Search size={16} /><input aria-label="Search orders" onChange={(event) => setOrderSearch(event.target.value)} placeholder="Search orders or customers" value={orderSearch} /></label>
+              <label className="admin-status-filter"><span className="sr-only">Filter by status</span><select onChange={(event) => setStatusFilter(event.target.value)} value={statusFilter}><option value="all">All statuses</option>{Object.entries(orderStatusLabels).map(([status, label]) => <option key={status} value={status}>{label}</option>)}</select></label>
+            </div>
+          </div>
+        )}
+        <div aria-live="polite" className={admin ? "orders-list admin-orders-list" : "orders-list"}>
           {error && <p className="form-error" role="alert">{error}</p>}
           {notice && <p className="orders-notice" role="status">{notice}</p>}
-          {!error && orders.length === 0 && (
+          {!error && visibleOrders.length === 0 && (
             <div className="orders-empty">
               <span className="empty-bag-icon"><PackageCheck /></span>
-              <h3>No orders yet</h3>
-              <p>{admin ? "New customer orders will appear here." : "Your placed orders and delivery updates will appear here."}</p>
+              <h3>{admin && orderSearch ? "No matching orders" : admin && selectedPeriodRange ? "No orders in this period" : "No orders yet"}</h3>
+              <p>{admin && orderSearch ? "Try a different order ID, customer name, or phone number." : admin && selectedPeriodRange ? "Try another day or date range to view orders." : admin ? "New customer orders will appear here." : "Your placed orders and delivery updates will appear here."}</p>
             </div>
           )}
-          {orders.map((order) => {
+          {visibleOrders.map((order) => {
             const stepIndex = orderSteps.findIndex(([status]) => status === order.status);
             return (
               <article className="order-card" key={order.id}>
@@ -1872,7 +2039,28 @@ function OrdersDialog({ onClose, onSignOut, admin = false, user, onUserUpdated }
                   <div><span className="order-id">ORDER {order.id}</span><h3>₹{order.total} <span>· {order.items.reduce((sum, item) => sum + item.quantity, 0)} box(es)</span></h3></div>
                   <span className={`order-status status-${order.status}`}>{orderStatusLabels[order.status]}</span>
                 </div>
-                {admin && <div className="admin-customer"><strong>{order.customer.name}</strong> · {order.customer.phone} · {order.customer.email}</div>}
+                {admin && (
+                  <>
+                    <div className="admin-customer"><strong>{order.customer.name}</strong> · {order.customer.phone} · {order.customer.email}</div>
+                    <div aria-label={`Contact ${order.customer.name} about this order`} className="order-contact-actions">
+                      <a className="order-contact-link" href={phoneLink(order.customer.phone)}>
+                        <Phone size={14} /> Call customer
+                      </a>
+                      <a
+                        aria-label={`WhatsApp ${order.customer.name} about order ${order.id} status`}
+                        className="order-contact-link order-contact-whatsapp"
+                        href={whatsAppContactUrl(
+                          order.customer.phone,
+                          `Hello ${order.customer.name}, your Froot Bowl order ${order.id} for ₹${order.total} is now ${orderStatusLabels[order.status].toLowerCase()}. Reply here if you have any questions.`,
+                        )}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        <MessageCircle size={14} /> WhatsApp status update
+                      </a>
+                    </div>
+                  </>
+                )}
                 <div className="order-item-list">
                   {order.items.map((item) => <span key={item.productId}>{item.name} × {item.quantity} <b>₹{item.lineTotal}</b></span>)}
                 </div>
@@ -1940,17 +2128,32 @@ function OrdersDialog({ onClose, onSignOut, admin = false, user, onUserUpdated }
                     )}
                   </>
                 )}
-                {Number.isFinite(order.address.latitude) && Number.isFinite(order.address.longitude) && (
+                {!admin && Number.isFinite(order.address.latitude) && Number.isFinite(order.address.longitude) && (
                   <a
                     className="order-map-link"
                     href={mapsDirectionsUrl(order.address.latitude, order.address.longitude)}
                     rel="noreferrer"
                     target="_blank"
                   >
-                    <MapPin size={14} /> {admin ? "Open delivery location in Google Maps" : "View delivery location on Google Maps"}
+                    <MapPin size={14} /> View delivery location on Google Maps
                   </a>
                 )}
                 <p className="order-payment">{order.paymentMethod === "cod" ? "Cash on delivery" : "Confirm on WhatsApp"} · Free delivery</p>
+                {!admin && (
+                  <div aria-label={`Contact Froot Bowl about order ${order.id}`} className="order-contact-actions">
+                    <a
+                      className="order-contact-link order-contact-whatsapp"
+                      href={`https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(`Hello Froot Bowl, I have a question about order ${order.id}. Current status: ${orderStatusLabels[order.status]}.`)}`}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      <MessageCircle size={14} /> Chat with Froot Bowl
+                    </a>
+                    <a className="order-contact-link" href={phoneLink(WHATSAPP_NUMBER)}>
+                      <Phone size={14} /> Call Froot Bowl
+                    </a>
+                  </div>
+                )}
                 {order.paymentMethod === "whatsapp" && order.status === "awaiting_confirmation" && (
                   <WhatsAppLink
                     className="order-whatsapp-link"
@@ -2004,18 +2207,18 @@ function OrdersDialog({ onClose, onSignOut, admin = false, user, onUserUpdated }
                         </label>
                       </>
                     )}
-                    {order.status === "delivered" && (
-                      <button className="delete-delivered" disabled={busyOrder === order.id} onClick={() => setConfirmation({ type: "delete", order })} type="button">
-                        <Trash2 size={14} /> Delete delivered order
-                      </button>
-                    )}
+                    <button className="delete-order-button" disabled={busyOrder === order.id} onClick={() => setConfirmation({ type: "delete", order })} type="button">
+                      <Trash2 size={14} /> Delete order
+                    </button>
                   </div>
                 )}
               </article>
             );
           })}
         </div>
-        <p className="tracking-disclaimer"><MapPin size={14} /> Froot Bowl manages the order and delivery status updates.</p>
+        {!admin && <p className="tracking-disclaimer"><MapPin size={14} /> Froot Bowl manages the order and delivery status updates.</p>}
+        </section>
+        </main>
       </section>
       {confirmation && (
         <div
@@ -2033,7 +2236,7 @@ function OrdersDialog({ onClose, onSignOut, admin = false, user, onUserUpdated }
             <span className="confirmation-mark">{confirmation.type === "cancel" ? <X /> : <Trash2 />}</span>
             <span className="eyebrow">{confirmation.type === "cancel" ? "ORDER UPDATE" : "ADMIN ACTION"}</span>
             <h2 id="confirmation-title">
-              {confirmation.type === "cancel" ? "Cancel this order?" : "Delete this delivered order?"}
+              {confirmation.type === "cancel" ? "Cancel this order?" : "Delete this order?"}
             </h2>
             <p>
               {confirmation.type === "cancel"
