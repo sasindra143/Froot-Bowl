@@ -40,6 +40,7 @@ import {
 
 const WHATSAPP_NUMBER = "919959732476";
 const INSTAGRAM_URL = "https://www.instagram.com/froot_bowl_markapur/";
+const BASE_URL = import.meta.env.BASE_URL;
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim() || "";
 let googleMapsPromise;
 
@@ -516,7 +517,7 @@ function FoodImage({ src, alt, ...props }) {
       {...props}
       alt={alt}
       onError={() => setFailed(true)}
-      src={failed ? "/assets/fruit-placeholder.svg" : src}
+      src={failed ? `${BASE_URL}assets/fruit-placeholder.svg` : src}
     />
   );
 }
@@ -534,7 +535,7 @@ function Header({ cartCount, onCartOpen, user, onAccount, onAdmin }) {
   return (
     <header className="site-header">
       <a aria-label="Froot Bowl Markapur home" className="brand" href="#home">
-        <img src="/assets/froot-bowl-logo.jpeg" alt="Froot Bowl logo" />
+        <img src={`${BASE_URL}assets/froot-bowl-logo.jpeg`} alt="Froot Bowl logo" />
         <span className="brand-copy">
           <strong>Froot Bowl</strong>
           <small>MARKAPUR</small>
@@ -981,7 +982,7 @@ function AuthDialog({ purpose, initialAdmin = false, onClose, onSignedIn }) {
             </button>
           </p>
         )}
-        {isAdmin && <a className="admin-switch" href="/">Return to the shop</a>}
+        {isAdmin && <a className="admin-switch" href={BASE_URL}>Return to the shop</a>}
       </section>
     </div>
   );
@@ -1536,50 +1537,50 @@ function OrdersDialog({ onClose, onSignOut, admin = false, user, onUserUpdated }
     } catch (requestError) {
       setError(requestError.message);
     }
+  }
 
-    async function saveCoverage(event) {
-      event.preventDefault();
-      setCoverageBusy(true);
-      setError("");
-      setNotice("");
-      const form = new FormData(event.currentTarget);
-      try {
-        const result = await apiRequest("/api/admin/coverage", {
-          method: "PUT",
-          body: JSON.stringify({
-            center: coverage.center,
-            radiusKm: Number(form.get("radiusKm")),
-            referencePoint: form.get("referencePoint"),
-            enabled: form.get("enabled") === "on",
-          }),
-        });
-        setCoverage(result.coverage);
-        setNotice("Delivery coverage settings saved.");
-      } catch (requestError) {
-        setError(requestError.message);
-      } finally {
-        setCoverageBusy(false);
-      }
+  async function saveCoverage(event) {
+    event.preventDefault();
+    setCoverageBusy(true);
+    setError("");
+    setNotice("");
+    const form = new FormData(event.currentTarget);
+    try {
+      const result = await apiRequest("/api/admin/coverage", {
+        method: "PUT",
+        body: JSON.stringify({
+          center: coverage.center,
+          radiusKm: Number(form.get("radiusKm")),
+          referencePoint: form.get("referencePoint"),
+          enabled: form.get("enabled") === "on",
+        }),
+      });
+      setCoverage(result.coverage);
+      setNotice("Delivery coverage settings saved.");
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setCoverageBusy(false);
     }
+  }
 
-    function useAdminCurrentLocation() {
-      if (!navigator.geolocation) {
-        setError("Location is not available in this browser.");
-        return;
-      }
-      navigator.geolocation.getCurrentPosition(
-        ({ coords }) => setCoverage((current) => ({
-          ...current,
-          center: { latitude: coords.latitude, longitude: coords.longitude },
-        })),
-        (geoError) => setError(
-          geoError.code === geoError.PERMISSION_DENIED
-            ? "Allow location access or select the service center on the map."
-            : "We couldn’t get the service-center location. Select it on the map instead.",
-        ),
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
-      );
+  function useAdminCurrentLocation() {
+    if (!navigator.geolocation) {
+      setError("Location is not available in this browser.");
+      return;
     }
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => setCoverage((current) => ({
+        ...current,
+        center: { latitude: coords.latitude, longitude: coords.longitude },
+      })),
+      (geoError) => setError(
+        geoError.code === geoError.PERMISSION_DENIED
+          ? "Allow location access or select the service center on the map."
+          : "We couldn’t get the service-center location. Select it on the map instead.",
+      ),
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
+    );
   }
 
   useEffect(() => {
@@ -2379,8 +2380,8 @@ function RiderPortal({ user, onSignOut }) {
   return (
     <div className="admin-page rider-page">
       <header className="admin-page-header">
-        <a aria-label="Froot Bowl customer shop" className="brand" href="/">
-          <img alt="" src="/assets/froot-bowl-logo.jpeg" />
+        <a aria-label="Froot Bowl customer shop" className="brand" href={BASE_URL}>
+          <img alt="" src={`${BASE_URL}assets/froot-bowl-logo.jpeg`} />
           <span className="brand-copy"><strong>Froot Bowl</strong><small>MARKAPUR</small></span>
         </a>
         <span className="admin-private-label"><Truck size={16} /> RIDER PORTAL</span>
@@ -2556,8 +2557,11 @@ function RiderPortal({ user, onSignOut }) {
 }
 
 function App() {
-  const adminRoute = window.location.pathname === "/admin";
-  const removedRiderRoute = window.location.pathname === "/rider";
+  const pathname = window.location.pathname.startsWith(BASE_URL)
+    ? `/${window.location.pathname.slice(BASE_URL.length)}`
+    : window.location.pathname;
+  const adminRoute = pathname === "/admin";
+  const removedRiderRoute = pathname === "/rider";
   const [cart, setCart] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("froot-bowl-cart") || "[]");
@@ -2583,7 +2587,7 @@ function App() {
   const cartCount = cart.reduce((count, item) => count + item.quantity, 0);
 
   useEffect(() => {
-    if (removedRiderRoute) window.location.replace("/");
+    if (removedRiderRoute) window.location.replace(BASE_URL);
   }, [removedRiderRoute]);
 
   useEffect(() => {
@@ -2734,12 +2738,12 @@ function App() {
     return (
       <div className="admin-page">
         <header className="admin-page-header">
-          <a aria-label="Froot Bowl customer shop" className="brand" href="/">
-            <img alt="" src="/assets/froot-bowl-logo.jpeg" />
+          <a aria-label="Froot Bowl customer shop" className="brand" href={BASE_URL}>
+            <img alt="" src={`${BASE_URL}assets/froot-bowl-logo.jpeg`} />
             <span className="brand-copy"><strong>Froot Bowl</strong><small>MARKAPUR</small></span>
           </a>
           <span className="admin-private-label"><ShieldCheck size={16} /> PRIVATE STAFF PORTAL</span>
-          <a className="admin-store-link" href="/">Customer shop <ArrowUpRight size={15} /></a>
+          <a className="admin-store-link" href={BASE_URL}>Customer shop <ArrowUpRight size={15} /></a>
         </header>
         <main className="admin-page-main">
           <span className="eyebrow">FROOT BOWL · MARKAPUR</span>
@@ -3116,7 +3120,7 @@ function App() {
         <div className="footer-main">
           <div className="footer-brand-block">
             <a aria-label="Froot Bowl Markapur home" className="brand footer-brand" href="#home">
-              <img src="/assets/froot-bowl-logo.jpeg" alt="" />
+              <img src={`${BASE_URL}assets/froot-bowl-logo.jpeg`} alt="" />
               <span className="brand-copy"><strong>Froot Bowl</strong><small>MARKAPUR</small></span>
             </a>
             <p>Freshness in every bowl.<br />Fresh fruit &amp; healthy choices, made for you.</p>

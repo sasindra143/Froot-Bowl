@@ -77,13 +77,25 @@ Copy-Item .env.example .env.local
 npm run dev
 ```
 
-Open the customer website at [http://localhost:5173](http://localhost:5173). Vite forwards `/api` requests to the backend.
+Open the customer website at [http://localhost:5173/Froot-Bowl/](http://localhost:5173/Froot-Bowl/). Vite forwards `/api` requests to the backend.
 
 ### Private staff links
 
-- Admin portal: [http://localhost:5173/admin](http://localhost:5173/admin)
+- Admin portal: [http://localhost:5173/Froot-Bowl/admin](http://localhost:5173/Froot-Bowl/admin)
 
 The rider portal has been removed; visiting `/rider` redirects to the customer storefront. Admin credentials are configured only in the local `backend/.env`; never put passwords in this README or frontend source.
+
+### Production frontend build
+
+The Vite build uses `/Froot-Bowl/` as its public base path for GitHub Pages project-site assets and routes. Build it with:
+
+```powershell
+Set-Location frontend
+npm install
+npm run build
+```
+
+The output is in `frontend/dist`. GitHub Pages serves only static frontend files; the Express API must be deployed separately and configured to serve the frontend's `/api` requests for sign-in, orders, address lookup, and admin features to work.
 
 ## Main flows
 
